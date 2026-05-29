@@ -111,6 +111,7 @@ pub fn build_ethernet_connection(
 mod tests {
     use super::*;
     use crate::models::{ConnectionOptions, EapMethod, EapOptions, Phase2, WifiSecurity};
+    use crate::{EapWithPhase2Options, PathOrBlob};
     use zvariant::Value;
 
     fn default_opts() -> ConnectionOptions {
@@ -186,13 +187,14 @@ mod tests {
     fn builds_eap_peap_connection() {
         let eap_opts = EapOptions {
             identity: "user@example.com".into(),
-            password: "secret123".into(),
-            anonymous_identity: Some("anonymous@example.com".into()),
             domain_suffix_match: Some("example.com".into()),
-            ca_cert_path: None,
+            ca_cert: None,
             system_ca_certs: true,
-            method: EapMethod::Peap,
-            phase2: Phase2::Mschapv2,
+            method: EapMethod::Peap(EapWithPhase2Options {
+                password: "secret123".into(),
+                anonymous_identity: Some("anonymous@example.com".into()),
+                phase2: Phase2::Mschapv2,
+            }),
         };
         let conn = build_wifi_connection(
             "enterprise",
@@ -223,13 +225,14 @@ mod tests {
     fn builds_eap_ttls_connection() {
         let eap_opts = EapOptions {
             identity: "student@uni.edu".into(),
-            password: "campus123".into(),
-            anonymous_identity: None,
             domain_suffix_match: None,
-            ca_cert_path: Some("file:///etc/ssl/certs/ca.pem".into()),
+            ca_cert: Some(PathOrBlob::from_path("/etc/ssl/certs/ca.pem")),
             system_ca_certs: false,
-            method: EapMethod::Ttls,
-            phase2: Phase2::Pap,
+            method: EapMethod::Ttls(EapWithPhase2Options {
+                password: "campus123".into(),
+                anonymous_identity: None,
+                phase2: Phase2::Pap,
+            }),
         };
         let conn = build_wifi_connection(
             "eduroam",
@@ -241,11 +244,16 @@ mod tests {
         assert_eq!(e1x.get("phase2-auth"), Some(&Value::from("pap")));
         assert_eq!(
             e1x.get("ca-cert"),
-            Some(&Value::from("file:///etc/ssl/certs/ca.pem".to_string()))
+            Some(&Value::from(
+                "file:///etc/ssl/certs/ca.pem\0".to_string().into_bytes()
+            ))
         );
         // system-ca-certs should NOT be present when false
         assert!(e1x.get("system-ca-certs").is_none());
     }
+
+    // TODO: Add test for EAP-TLS.
+    // TODO: Add tests with blobs.
 
     #[test]
     fn connection_with_priority_and_retries() {

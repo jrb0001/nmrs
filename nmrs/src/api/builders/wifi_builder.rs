@@ -8,6 +8,7 @@ use zvariant::Value;
 
 use super::connection_builder::ConnectionBuilder;
 use crate::api::models::{self, ConnectionOptions, EapMethod};
+use crate::PathOrBlob;
 
 /// WiFi band selection.
 #[non_exhaustive]
@@ -82,13 +83,13 @@ impl WifiMode {
 ///
 /// ```rust
 /// use nmrs::builders::WifiConnectionBuilder;
-/// use nmrs::{EapOptions, EapMethod, Phase2};
+/// use nmrs::{EapOptions, EapMethod, Phase2, EapWithPhase2Options};
 ///
-/// let eap_opts = EapOptions::new("user@company.com", "password")
+/// let eap_opts = EapOptions::new("user@company.com")
 ///     .with_domain_suffix_match("company.com")
 ///     .with_system_ca_certs(true)
-///     .with_method(EapMethod::Peap)
-///     .with_phase2(Phase2::Mschapv2);
+///     .with_method(EapMethod::Peap(EapWithPhase2Options::new("password")
+///         .with_phase2(Phase2::Mschapv2)));
 ///
 /// let settings = WifiConnectionBuilder::new("CorpNetwork")
 ///     .wpa_eap(eap_opts)
@@ -188,28 +189,40 @@ impl WifiConnectionBuilder {
         let mut e1x = HashMap::new();
 
         let eap_str = match opts.method {
-            EapMethod::Peap => "peap",
-            EapMethod::Ttls => "ttls",
+            EapMethod::Peap { .. } => "peap",
+            EapMethod::Ttls { .. } => "ttls",
+            EapMethod::Tls { .. } => "tls",
         };
         e1x.insert("eap", Self::string_array(&[eap_str]));
         e1x.insert("identity", Value::from(opts.identity));
-        e1x.insert("password", Value::from(opts.password));
 
-        if let Some(ai) = opts.anonymous_identity {
-            e1x.insert("anonymous-identity", Value::from(ai));
+        match opts.method {
+            EapMethod::Peap(opts) | EapMethod::Ttls(opts) => {
+                e1x.insert("password", Value::from(opts.password));
+                if let Some(ai) = opts.anonymous_identity {
+                    e1x.insert("anonymous-identity", Value::from(ai));
+                }
+
+                let p2 = match opts.phase2 {
+                    models::Phase2::Mschapv2 => "mschapv2",
+                    models::Phase2::Pap => "pap",
+                };
+                e1x.insert("phase2-auth", Value::from(p2));
+            }
+            EapMethod::Tls(opts) => {
+                e1x.insert("client-cert", Self::path_or_blob(opts.certificate));
+                e1x.insert("private-key", Self::path_or_blob(opts.private_key));
+                if let Some(password) = opts.private_key_password {
+                    e1x.insert("private-key-password", Value::from(password));
+                }
+            }
         }
-
-        let p2 = match opts.phase2 {
-            models::Phase2::Mschapv2 => "mschapv2",
-            models::Phase2::Pap => "pap",
-        };
-        e1x.insert("phase2-auth", Value::from(p2));
 
         if opts.system_ca_certs {
             e1x.insert("system-ca-certs", Value::from(true));
         }
-        if let Some(cert) = opts.ca_cert_path {
-            e1x.insert("ca-cert", Value::from(cert));
+        if let Some(cert) = opts.ca_cert {
+            e1x.insert("ca-cert", Self::path_or_blob(cert));
         }
         if let Some(dom) = opts.domain_suffix_match {
             e1x.insert("domain-suffix-match", Value::from(dom));
@@ -372,12 +385,20 @@ impl WifiConnectionBuilder {
         let vals: Vec<String> = xs.iter().map(|s| s.to_string()).collect();
         Value::from(vals)
     }
+
+    fn path_or_blob(value: PathOrBlob) -> Value<'static> {
+        Value::from(match value {
+            PathOrBlob::Path(value) => format!("file://{value}\0").into_bytes(),
+            PathOrBlob::Blob(value) => value,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::{EapOptions, Phase2};
+    use crate::EapWithPhase2Options;
 
     #[test]
     fn builds_open_wifi() {
@@ -435,13 +456,14 @@ mod tests {
     fn builds_wpa_eap_wifi() {
         let eap_opts = EapOptions {
             identity: "user@example.com".into(),
-            password: "secret".into(),
-            anonymous_identity: Some("anon@example.com".into()),
             domain_suffix_match: Some("example.com".into()),
-            ca_cert_path: None,
+            ca_cert: None,
             system_ca_certs: true,
-            method: EapMethod::Peap,
-            phase2: Phase2::Mschapv2,
+            method: EapMethod::Peap(EapWithPhase2Options {
+                password: "secret".into(),
+                anonymous_identity: Some("anon@example.com".into()),
+                phase2: Phase2::Mschapv2,
+            }),
         };
 
         let settings = WifiConnectionBuilder::new("Enterprise")
@@ -464,6 +486,8 @@ mod tests {
         );
         assert_eq!(e1x.get("phase2-auth"), Some(&Value::from("mschapv2")));
     }
+
+    // TODO: Add EAP-TLS test.
 
     #[test]
     fn configures_hidden_network() {

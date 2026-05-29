@@ -9,6 +9,7 @@ use crate::api::models::{
     ConnectionError, OpenVpnAuthType, OpenVpnConfig, OpenVpnProxy, VpnCredentials, WifiSecurity,
     WireGuardPeer,
 };
+use crate::{EapMethod, PathOrBlob};
 
 /// Maximum SSID length in bytes (802.11 standard).
 const MAX_SSID_BYTES: usize = 32;
@@ -145,20 +146,41 @@ pub fn validate_wifi_security(security: &WifiSecurity) -> Result<(), ConnectionE
                 ));
             }
 
-            // Validate password
-            if opts.password.is_empty() {
-                return Err(ConnectionError::InvalidAddress(
-                    "EAP password cannot be empty".to_string(),
-                ));
-            }
+            match &opts.method {
+                EapMethod::Peap(opts) | EapMethod::Ttls(opts) => {
+                    // Validate password
+                    if opts.password.is_empty() {
+                        return Err(ConnectionError::InvalidAddress(
+                            "EAP password cannot be empty".to_string(),
+                        ));
+                    }
 
-            // Validate anonymous identity if provided
-            if let Some(ref anon_id) = opts.anonymous_identity
-                && anon_id.trim().is_empty()
-            {
-                return Err(ConnectionError::InvalidAddress(
-                    "EAP anonymous identity cannot be empty if provided".to_string(),
-                ));
+                    // Validate anonymous identity if provided
+                    if let Some(ref anon_id) = opts.anonymous_identity
+                        && anon_id.trim().is_empty()
+                    {
+                        return Err(ConnectionError::InvalidAddress(
+                            "EAP anonymous identity cannot be empty if provided".to_string(),
+                        ));
+                    }
+                }
+                EapMethod::Tls(opts) => {
+                    // Validate certificate path
+                    validate_path_or_blob(&opts.certificate, "EAP-TLS client certificate")?;
+
+                    // Validate private key path
+                    validate_path_or_blob(&opts.private_key, "EAP-TLS private key")?;
+
+                    // Validate private key password match if provided
+                    if let Some(ref domain) = opts.private_key_password
+                        && domain.trim().is_empty()
+                    {
+                        return Err(ConnectionError::InvalidAddress(
+                            "EAP-TLS private key password match cannot be empty if provided"
+                                .to_string(),
+                        ));
+                    }
+                }
             }
 
             // Validate domain suffix match if provided
@@ -171,23 +193,34 @@ pub fn validate_wifi_security(security: &WifiSecurity) -> Result<(), ConnectionE
             }
 
             // Validate CA cert path if provided
-            if let Some(ref ca_cert) = opts.ca_cert_path {
-                if ca_cert.trim().is_empty() {
-                    return Err(ConnectionError::InvalidAddress(
-                        "EAP CA certificate path cannot be empty if provided".to_string(),
-                    ));
-                }
-                // Check if it starts with file:// as required by NetworkManager
-                if !ca_cert.starts_with("file://") {
-                    return Err(ConnectionError::InvalidAddress(
-                        "EAP CA certificate path must start with 'file://'".to_string(),
-                    ));
-                }
+            if let Some(ref ca_cert) = opts.ca_cert {
+                validate_path_or_blob(ca_cert, "EAP CA certificate")?;
             }
 
             Ok(())
         }
     }
+}
+
+fn validate_path_or_blob(data: &PathOrBlob, name: &str) -> Result<(), ConnectionError> {
+    match data {
+        PathOrBlob::Path(path) => {
+            if path.trim().is_empty() {
+                return Err(ConnectionError::InvalidAddress(format!(
+                    "{name} cannot be empty if provided"
+                )));
+            }
+        }
+        PathOrBlob::Blob(data) => {
+            if data.is_empty() {
+                return Err(ConnectionError::InvalidAddress(format!(
+                    "{name} cannot be empty if provided"
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Validates a WireGuard private or public key.
@@ -743,6 +776,7 @@ pub fn validate_bssid(bssid: &str) -> Result<(), ConnectionError> {
 mod tests {
     use super::*;
     use crate::api::models::{EapMethod, EapOptions, Phase2};
+    use crate::EapWithPhase2Options;
 
     #[test]
     fn test_validate_ssid_valid() {
@@ -822,13 +856,14 @@ mod tests {
         let eap = WifiSecurity::WpaEap {
             opts: EapOptions {
                 identity: "user@example.com".to_string(),
-                password: "password".to_string(),
-                anonymous_identity: None,
                 domain_suffix_match: Some("example.com".to_string()),
-                ca_cert_path: Some("file:///etc/ssl/cert.pem".to_string()),
+                ca_cert: Some(PathOrBlob::from_path("/etc/ssl/cert.pem")),
                 system_ca_certs: false,
-                method: EapMethod::Peap,
-                phase2: Phase2::Mschapv2,
+                method: EapMethod::Peap(EapWithPhase2Options {
+                    password: "password".to_string(),
+                    anonymous_identity: None,
+                    phase2: Phase2::Mschapv2,
+                }),
             },
         };
         assert!(validate_wifi_security(&eap).is_ok());
@@ -839,13 +874,14 @@ mod tests {
         let eap = WifiSecurity::WpaEap {
             opts: EapOptions {
                 identity: "".to_string(),
-                password: "password".to_string(),
-                anonymous_identity: None,
                 domain_suffix_match: None,
-                ca_cert_path: None,
+                ca_cert: None,
                 system_ca_certs: true,
-                method: EapMethod::Peap,
-                phase2: Phase2::Mschapv2,
+                method: EapMethod::Peap(EapWithPhase2Options {
+                    password: "password".to_string(),
+                    anonymous_identity: None,
+                    phase2: Phase2::Mschapv2,
+                }),
             },
         };
         assert!(validate_wifi_security(&eap).is_err());
@@ -856,13 +892,14 @@ mod tests {
         let eap = WifiSecurity::WpaEap {
             opts: EapOptions {
                 identity: "user@example.com".to_string(),
-                password: "password".to_string(),
-                anonymous_identity: None,
                 domain_suffix_match: None,
-                ca_cert_path: Some("/etc/ssl/cert.pem".to_string()), // Missing file://
+                ca_cert: Some(PathOrBlob::from_path("")),
                 system_ca_certs: false,
-                method: EapMethod::Peap,
-                phase2: Phase2::Mschapv2,
+                method: EapMethod::Peap(EapWithPhase2Options {
+                    password: "password".to_string(),
+                    anonymous_identity: None,
+                    phase2: Phase2::Mschapv2,
+                }),
             },
         };
         assert!(validate_wifi_security(&eap).is_err());

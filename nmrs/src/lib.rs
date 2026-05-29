@@ -152,7 +152,7 @@
 //! ## Connecting to Different Network Types
 //!
 //! ```rust
-//! use nmrs::{NetworkManager, WifiSecurity, EapOptions, EapMethod, Phase2};
+//! use nmrs::{NetworkManager, WifiSecurity, EapOptions, EapMethod, Phase2, EapWithPhase2Options};
 //!
 //! # async fn example() -> nmrs::Result<()> {
 //! let nm = NetworkManager::new().await?;
@@ -166,11 +166,11 @@
 //! }).await?;
 //!
 //! // WPA-EAP (Enterprise)
-//! let eap_opts = EapOptions::new("user@company.com", "password")
+//! let eap_opts = EapOptions::new("user@company.com")
 //!     .with_domain_suffix_match("company.com")
 //!     .with_system_ca_certs(true)
-//!     .with_method(EapMethod::Peap)
-//!     .with_phase2(Phase2::Mschapv2);
+//!     .with_method(EapMethod::Peap(EapWithPhase2Options::new("password")
+//!         .with_phase2(Phase2::Mschapv2)));
 //!
 //! nm.connect("CorpWiFi", None, WifiSecurity::WpaEap {
 //!     opts: eap_opts
@@ -408,16 +408,16 @@ pub mod models {
 // Re-export commonly used types at crate root for convenience
 #[allow(deprecated)]
 pub use api::models::{
-    AccessPoint, ActiveConnectionState, AirplaneModeState, ApMode, BluetoothDevice,
-    BluetoothIdentity, BluetoothNetworkRole, ConnectType, ConnectionError, ConnectionOptions,
-    ConnectionStateReason, ConnectivityReport, ConnectivityState, Device, DeviceState, DeviceType,
-    EapMethod, EapOptions, Network, NetworkInfo, OpenVpnAuthType, OpenVpnCompression,
-    OpenVpnConfig, OpenVpnConnectionType, OpenVpnProxy, Phase2, RadioState, SavedConnection,
-    SavedConnectionBrief, SecurityFeatures, SettingsPatch, SettingsSummary, StateReason,
-    TimeoutConfig, VlanConfig, VpnConfig, VpnConfiguration, VpnConnection, VpnConnectionInfo,
-    VpnCredentials, VpnDetails, VpnKind, VpnRoute, VpnSecretFlags, VpnType, WifiDevice,
-    WifiKeyMgmt, WifiSecurity, WifiSecuritySummary, WireGuardConfig, WireGuardPeer,
-    connection_state_reason_to_error, reason_to_error,
+    connection_state_reason_to_error, reason_to_error, AccessPoint, ActiveConnectionState, AirplaneModeState,
+    ApMode, BluetoothDevice, BluetoothIdentity, BluetoothNetworkRole, ConnectType,
+    ConnectionError, ConnectionOptions, ConnectionStateReason, ConnectivityReport, ConnectivityState, Device,
+    DeviceState, DeviceType, EapMethod, EapOptions, EapTlsOptions, EapWithPhase2Options,
+    Network, NetworkInfo, OpenVpnAuthType, OpenVpnCompression, OpenVpnConfig,
+    OpenVpnConnectionType, OpenVpnProxy, PathOrBlob, Phase2, RadioState, SavedConnection,
+    SavedConnectionBrief, SecurityFeatures, SettingsPatch, SettingsSummary, StateReason, TimeoutConfig,
+    VlanConfig, VpnConfig, VpnConfiguration, VpnConnection, VpnConnectionInfo, VpnCredentials,
+    VpnDetails, VpnKind, VpnRoute, VpnSecretFlags, VpnType, WifiDevice, WifiKeyMgmt,
+    WifiSecurity, WifiSecuritySummary, WireGuardConfig, WireGuardPeer,
 };
 pub use api::network_manager::NetworkManager;
 pub use api::wifi_scope::WifiScope;

@@ -3,7 +3,10 @@
 //! These tests verify that invalid inputs are rejected before attempting
 //! D-Bus operations, providing clear error messages to users.
 
-use nmrs::{ConnectionError, EapOptions, WifiSecurity, WireGuardConfig, WireGuardPeer};
+use nmrs::{
+    ConnectionError, EapMethod, EapOptions, EapWithPhase2Options, PathOrBlob, WifiSecurity,
+    WireGuardConfig, WireGuardPeer,
+};
 use zvariant::OwnedObjectPath;
 
 #[test]
@@ -83,7 +86,8 @@ fn test_empty_wpa_psk_allowed() {
 
 #[test]
 fn test_invalid_eap_empty_identity() {
-    let opts = EapOptions::new("", "password").with_system_ca_certs(true);
+    // TODO: Verify if still correct.
+    let opts = EapOptions::new("").with_system_ca_certs(true);
 
     let eap = WifiSecurity::WpaEap { opts };
 
@@ -91,9 +95,10 @@ fn test_invalid_eap_empty_identity() {
 }
 
 #[test]
-fn test_invalid_eap_ca_cert_path() {
-    let opts =
-        EapOptions::new("user@example.com", "password").with_ca_cert_path("/etc/ssl/cert.pem"); // Missing file:// prefix
+fn test_invalid_eap_ca_cert() {
+    // TODO: Verify if still correct.
+    let opts = EapOptions::new("user@example.com")
+        .with_ca_cert(PathOrBlob::from_path("/etc/ssl/cert.pem"));
 
     let eap = WifiSecurity::WpaEap { opts };
 
@@ -102,10 +107,13 @@ fn test_invalid_eap_ca_cert_path() {
 
 #[test]
 fn test_valid_eap() {
-    let opts = EapOptions::new("user@example.com", "password")
-        .with_anonymous_identity("anonymous@example.com")
+    // TODO: Verify if still correct.
+    let opts = EapOptions::new("user@example.com")
+        .with_method(EapMethod::Peap(
+            EapWithPhase2Options::new("password").with_anonymous_identity("anonymous@example.com"),
+        ))
         .with_domain_suffix_match("example.com")
-        .with_ca_cert_path("file:///etc/ssl/cert.pem");
+        .with_ca_cert(PathOrBlob::from_path("/etc/ssl/cert.pem"));
 
     let eap = WifiSecurity::WpaEap { opts };
 
